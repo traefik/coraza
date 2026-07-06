@@ -6,15 +6,20 @@ package transformations
 import (
 	"crypto/sha1"
 	"io"
+	"sync"
 
 	"github.com/corazawaf/coraza/v3/internal/strings"
 )
 
-var emptySHA1 string
+// Computed lazily to avoid calling SHA-1 in an init, which panics under GODEBUG=fips140=only.
+var emptySHA1 = sync.OnceValue(func() string {
+	sum := sha1.Sum(nil)
+	return string(sum[:])
+})
 
 func sha1T(data string) (string, bool, error) {
 	if len(data) == 0 {
-		return emptySHA1, true, nil
+		return emptySHA1(), true, nil
 	}
 	h := sha1.New()
 	_, err := io.WriteString(h, data)
@@ -23,9 +28,4 @@ func sha1T(data string) (string, bool, error) {
 	}
 	// The occurrence of an invariant transformation is so unlikely that we can assume the transformation returns a changed value
 	return strings.WrapUnsafe(h.Sum(nil)), true, nil
-}
-
-func init() {
-	buf := sha1.Sum(nil)
-	emptySHA1 = string(buf[:])
 }

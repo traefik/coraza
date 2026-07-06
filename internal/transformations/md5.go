@@ -6,15 +6,20 @@ package transformations
 import (
 	"crypto/md5"
 	"io"
+	"sync"
 
 	"github.com/corazawaf/coraza/v3/internal/strings"
 )
 
-var emptyMD5 string
+// Computed lazily to avoid calling MD5 in an init, which panics under GODEBUG=fips140=only.
+var emptyMD5 = sync.OnceValue(func() string {
+	sum := md5.Sum(nil)
+	return string(sum[:])
+})
 
 func md5T(data string) (string, bool, error) {
 	if len(data) == 0 {
-		return emptyMD5, true, nil
+		return emptyMD5(), true, nil
 	}
 
 	h := md5.New()
@@ -25,9 +30,4 @@ func md5T(data string) (string, bool, error) {
 	// The occurrence of an invariant transformation is so unlikely that we can assume the transformation returns a changed value
 	// https://crypto.stackexchange.com/questions/68674/md5-existence-of-invariant-fixed-point
 	return strings.WrapUnsafe(h.Sum(nil)), true, nil
-}
-
-func init() {
-	buf := md5.Sum(nil)
-	emptyMD5 = string(buf[:])
 }
