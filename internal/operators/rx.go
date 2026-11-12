@@ -31,7 +31,7 @@ import (
 // true if the pattern matches the input, false otherwise
 //
 // Example:
-// ```
+// ```seclang
 // # Match User-Agent containing "nikto" (with explicit @rx)
 // SecRule REQUEST_HEADERS:User-Agent "@rx nikto" "id:180,deny,log"
 //
@@ -186,7 +186,7 @@ var _ plugintypes.Operator = (*binaryRX)(nil)
 func newBinaryRX(options plugintypes.OperatorOptions) (plugintypes.Operator, error) {
 	data := options.Arguments
 
-	re, err := memoizeDo(options.Memoizer, data, func() (any, error) { return binaryregexp.Compile(data) })
+	re, err := memoizeDo(options.Memoizer, memoizeKey("binaryrx", data), func() (any, error) { return binaryregexp.Compile(data) })
 	if err != nil {
 		return nil, err
 	}

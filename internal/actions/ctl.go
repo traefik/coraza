@@ -98,7 +98,7 @@ const (
 //     This allows for inspection of request bodies of unknown types.
 //
 // Example:
-// ```
+// ```seclang
 // # Parse requests with Content-Type "text/xml" as XML
 // SecRule REQUEST_CONTENT_TYPE ^text/xml "nolog,pass,id:106,phase:1,ctl:requestBodyProcessor=XML"
 //
@@ -415,7 +415,7 @@ func parseCtl(data string, memoizer plugintypes.Memoizer) (ctlFunctionType, stri
 		}
 		var err error
 		if memoizer != nil {
-			re, compileErr := memoizer.Do(rxPattern, func() (any, error) { return regexp.Compile(rxPattern) })
+			re, compileErr := memoizer.Do("regexp:"+rxPattern, func() (any, error) { return regexp.Compile(rxPattern) })
 			if compileErr != nil {
 				return ctlUnknown, "", 0, "", nil, fmt.Errorf("invalid regex in ctl collection key: %w", compileErr)
 			}

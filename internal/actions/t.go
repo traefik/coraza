@@ -17,7 +17,7 @@ import (
 // It is recommended that you always use `t:none` in your rules, which prevents them depending on the default configuration.
 //
 // Example:
-// ```
+// ```seclang
 // SecRule ARGS "(asfunction|javascript|vbscript|data|mocha|livescript):" "id:146,t:none,t:htmlEntityDecode,t:lowercase,t:removeNulls,t:removeWhitespace"
 // ```
 type tFn struct{}
@@ -46,6 +46,15 @@ func (a *tFn) Type() plugintypes.ActionType {
 
 func t() plugintypes.Action {
 	return &tFn{}
+}
+
+// IsTransformationAction returns true if the action is the built-in "t" action.
+// The built-in "t" action is configuration-only: its Init method configures transformations
+// on the rule, but it performs no operation at transaction evaluation time and does not
+// need to be stored in the rule's runtime actions.
+func IsTransformationAction(a plugintypes.Action) bool {
+	_, ok := a.(*tFn)
+	return ok
 }
 
 var (

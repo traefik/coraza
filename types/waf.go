@@ -199,7 +199,9 @@ func ParseAuditLogParts(opts string) (AuditLogParts, error) {
 // ApplyAuditLogParts applies audit log parts modifications to the base parts.
 // It supports adding parts with '+' prefix (e.g., "+E") or removing parts with '-' prefix (e.g., "-E").
 // For absolute values (e.g., "ABCDEFZ"), use ParseAuditLogParts instead.
-// Parts 'A' and 'Z' are mandatory and cannot be added or removed.
+// Parts 'A' and 'Z' cannot be added or removed this way. Whichever of them the
+// base contains is kept in the result, 'A' first and 'Z' last; the remaining
+// parts are returned in canonical order (BCDEFGHIJK).
 func ApplyAuditLogParts(base AuditLogParts, modification string) (AuditLogParts, error) {
 	if len(modification) == 0 {
 		return nil, errors.New("modification string cannot be empty")
@@ -243,12 +245,20 @@ func ApplyAuditLogParts(base AuditLogParts, modification string) (AuditLogParts,
 		}
 	}
 
-	// Convert map back to slice, maintaining the canonical order
+	// Convert map back to slice, maintaining the canonical order. A and Z are
+	// not in orderedAuditLogParts, so they are kept from the base explicitly:
+	// A first and Z last, as ParseAuditLogParts requires.
 	result := make([]AuditLogPart, 0, len(partsMap))
+	if _, ok := partsMap[AuditLogPartHeader]; ok {
+		result = append(result, AuditLogPartHeader)
+	}
 	for _, part := range orderedAuditLogParts {
 		if _, ok := partsMap[part]; ok {
 			result = append(result, part)
 		}
+	}
+	if _, ok := partsMap[AuditLogPartEndMarker]; ok {
+		result = append(result, AuditLogPartEndMarker)
 	}
 
 	return AuditLogParts(result), nil
@@ -278,7 +288,7 @@ type Interruption struct {
 type BodyBufferOptions struct {
 	// TmpPath is the path to store temporary files
 	TmpPath string
-	// MemoryLimit is the maximum amount of memory to be stored in memory
+	// MemoryLimit is the maximum amount of data to be stored in memory
 	// Once the limit is reached, the file will be stored on disk
 	MemoryLimit int64
 	// Limit is the overall maximum amount of memory to be buffered

@@ -6,8 +6,6 @@
 package operators
 
 import (
-	"crypto/md5"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -34,7 +32,7 @@ import (
 // true if JSON validation fails (violation), false if JSON is valid or no data to validate
 //
 // Example:
-// ```
+// ```seclang
 // # Validate request body against API schema
 // SecRule REQUEST_BODY "@validateSchema /schemas/api-request.json" "id:197,deny,log,phase:2"
 //
@@ -46,12 +44,6 @@ type validateSchema struct {
 }
 
 var _ plugintypes.Operator = (*validateSchema)(nil)
-
-func md5Hash(b []byte) string {
-	hasher := md5.New()
-	hasher.Write(b)
-	return hex.EncodeToString(hasher.Sum(nil))
-}
 
 // NewValidateSchema creates a new validateSchema operator
 func NewValidateSchema(options plugintypes.OperatorOptions) (plugintypes.Operator, error) {
@@ -77,8 +69,7 @@ func NewValidateSchema(options plugintypes.OperatorOptions) (plugintypes.Operato
 		return nil, fmt.Errorf("reading schema from root FS: %v", err)
 	}
 
-	key := md5Hash(schemaData)
-	schema, err := memoizeDo(options.Memoizer, key, func() (any, error) {
+	schema, err := memoizeDo(options.Memoizer, memoizeKey("validateSchema", string(schemaData)), func() (any, error) {
 		// Preliminarily validate that the schema is valid JSON
 		var jsonSchema any
 		if err := json.Unmarshal(schemaData, &jsonSchema); err != nil {

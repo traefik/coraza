@@ -6,6 +6,7 @@ package operators
 
 import (
 	"io/fs"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -436,7 +437,12 @@ func (m *mockTransaction) MatchedVars() collection.Map                     { ret
 func (m *mockTransaction) MatchedVarsNames() collection.Keyed              { return nil }
 func (m *mockTransaction) MultipartName() collection.Map                   { return nil }
 func (m *mockTransaction) MultipartFilename() collection.Map               { return nil }
+func (m *mockTransaction) MultipartFilenameCharset() collection.Map        { return nil }
+func (m *mockTransaction) MultipartFilenameLanguage() collection.Map       { return nil }
 func (m *mockTransaction) MultipartStrictError() collection.Single         { return nil }
+func (m *mockTransaction) MultipartDuplicatePartHeader() collection.Single { return nil }
+func (m *mockTransaction) MultipartInvalidQuoting() collection.Single      { return nil }
+func (m *mockTransaction) ArgumentsLimitReached() collection.Single        { return nil }
 func (m *mockTransaction) HighestSeverity() collection.Single              { return nil }
 func (m *mockTransaction) StatusLine() collection.Single                   { return nil }
 func (m *mockTransaction) ResponseStatus() collection.Single               { return nil }
@@ -588,5 +594,30 @@ func TestValidateSchemaPhasePreference(t *testing.T) {
 	opResult = op.Evaluate(tx, "")
 	if !opResult {
 		t.Errorf("Expected response body validation to trigger violation when only response body is available")
+	}
+}
+
+func TestMemoizeKey(t *testing.T) {
+	tests := []struct {
+		name string
+		a, b string
+		same bool
+	}{
+		{"same operator and content", memoizeKey("validateSchema", "x"), memoizeKey("validateSchema", "x"), true},
+		{"different content", memoizeKey("validateSchema", "x"), memoizeKey("validateSchema", "y"), false},
+		{"different operator", memoizeKey("validateSchema", "x"), memoizeKey("pm", "x"), false},
+		{"content split differently", memoizeKey("validateSchema", "ab"), memoizeKey("validateSchema", "a", "b"), false},
+		{"NUL inside an element", memoizeKey("validateSchema", "a\x00b"), memoizeKey("validateSchema", "a", "b"), false},
+		{"empty element is not nothing", memoizeKey("validateSchema", "a", ""), memoizeKey("validateSchema", "a"), false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if (tc.a == tc.b) != tc.same {
+				t.Errorf("keys equal = %v, want %v (%q vs %q)", tc.a == tc.b, tc.same, tc.a, tc.b)
+			}
+		})
+	}
+	if key := memoizeKey("validateSchema", "x"); !strings.HasPrefix(key, "validateSchema:") {
+		t.Errorf("key must be namespaced by operator, got %q", key)
 	}
 }

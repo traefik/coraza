@@ -28,7 +28,7 @@ import (
 // true if any keyword from the file(s) is found in the input, false otherwise
 //
 // Example:
-// ```
+// ```seclang
 // # Block user agents from denylist file
 // SecRule REQUEST_HEADERS:User-Agent "@pmFromFile /path/to/denylist.txt" "id:172,deny,log"
 //
@@ -64,7 +64,10 @@ func newPMFromFile(options plugintypes.OperatorOptions) (plugintypes.Operator, e
 		DFA:                  false,
 	})
 
-	m, _ := memoizeDo(options.Memoizer, strings.Join(options.Path, ",")+filepath, func() (any, error) { return builder.Build(lines), nil })
+	// Key by the file's content, not its path: the cache is shared by every
+	// WAF in the process, and two WAFs can load the same path from different
+	// root filesystems (GHSA-wc2q-x24m-8c5f).
+	m, _ := memoizeDo(options.Memoizer, memoizeKey("pmFromFile", lines...), func() (any, error) { return builder.Build(lines), nil })
 
 	return &pm{matcher: m.(ahocorasick.AhoCorasick), minLen: minPatternLen(lines)}, nil
 }

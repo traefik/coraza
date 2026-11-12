@@ -64,6 +64,104 @@ func TestMap(t *testing.T) {
 
 }
 
+// TestMapTotalValuesVsLen is a regression test for GHSA-3ww9-vw83-9w5x: Len
+// counts distinct keys, so a caller enforcing an argument limit against Len
+// was blind to many values piling up under one repeated key. TotalValues
+// must count every value instead.
+func TestMapTotalValuesVsLen(t *testing.T) {
+	c := NewMap(variables.ArgsGet)
+	for range 1000 {
+		c.Add("repeated", "v")
+	}
+	if c.Len() != 1 {
+		t.Fatalf("expected Len() == 1 for a single repeated key, got %d", c.Len())
+	}
+	if c.TotalValues() != 1000 {
+		t.Fatalf("expected TotalValues() == 1000, got %d", c.TotalValues())
+	}
+
+	c.Add("distinct", "v")
+	if c.Len() != 2 {
+		t.Fatalf("expected Len() == 2 after adding a distinct key, got %d", c.Len())
+	}
+	if c.TotalValues() != 1001 {
+		t.Fatalf("expected TotalValues() == 1001, got %d", c.TotalValues())
+	}
+}
+
+func TestMapTotalValuesEmpty(t *testing.T) {
+	c := NewMap(variables.ArgsGet)
+	if got := c.TotalValues(); got != 0 {
+		t.Fatalf("expected TotalValues() == 0 for an empty map, got %d", got)
+	}
+}
+
+// TestMapTotalValuesTracksAllMutations is a regression test for the counter
+// TotalValues now maintains incrementally (see GHSA-6r3q-mjv7-xr8m follow-up:
+// recomputing it by walking every key on each call made checkArgumentLimit
+// quadratic). Every mutating method must keep the counter in sync, not just
+// Add.
+func TestMapTotalValuesTracksAllMutations(t *testing.T) {
+	c := NewMap(variables.ArgsGet)
+
+	c.Set("key", []string{"v1", "v2", "v3"})
+	if got := c.TotalValues(); got != 3 {
+		t.Fatalf("after Set with 3 values: expected TotalValues() == 3, got %d", got)
+	}
+
+	// Set overwriting the same key with fewer values must shrink the count,
+	// not just grow it.
+	c.Set("key", []string{"v1"})
+	if got := c.TotalValues(); got != 1 {
+		t.Fatalf("after Set shrinking to 1 value: expected TotalValues() == 1, got %d", got)
+	}
+
+	// SetIndex growing past the current length appends.
+	c.SetIndex("key", 5, "v-at-5")
+	if got := c.TotalValues(); got != 2 {
+		t.Fatalf("after SetIndex append: expected TotalValues() == 2, got %d", got)
+	}
+
+	// SetIndex overwriting an existing index must not change the count.
+	c.SetIndex("key", 0, "v1-overwritten")
+	if got := c.TotalValues(); got != 2 {
+		t.Fatalf("after SetIndex overwrite: expected TotalValues() == 2, got %d", got)
+	}
+
+	// SetIndex on a brand new key.
+	c.SetIndex("new-key", 0, "v")
+	if got := c.TotalValues(); got != 3 {
+		t.Fatalf("after SetIndex on a new key: expected TotalValues() == 3, got %d", got)
+	}
+
+	c.Remove("key")
+	if got := c.TotalValues(); got != 1 {
+		t.Fatalf("after Remove: expected TotalValues() == 1, got %d", got)
+	}
+
+	// Removing a key that was never present must be a no-op.
+	c.Remove("does-not-exist")
+	if got := c.TotalValues(); got != 1 {
+		t.Fatalf("after Remove of a missing key: expected TotalValues() == 1, got %d", got)
+	}
+
+	c.Reset()
+	if got := c.TotalValues(); got != 0 {
+		t.Fatalf("after Reset: expected TotalValues() == 0, got %d", got)
+	}
+}
+
+func BenchmarkMapTotalValues(b *testing.B) {
+	c := NewMap(variables.ArgsGet)
+	for range 1000 {
+		c.Add("repeated", "v")
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		c.TotalValues()
+	}
+}
+
 // Case Sensitive Map
 // This is for ARGS, ARGS_GET, ARGS_POST and other collections that are case sensitive
 func TestNewCaseSensitiveKeyMap(t *testing.T) {
@@ -185,7 +283,7 @@ func TestFindAllEmptyMap(t *testing.T) {
 func BenchmarkFindAll(b *testing.B) {
 	b.ReportAllocs()
 	m := NewMap(variables.RequestHeaders)
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		m.Add(fmt.Sprintf("x-header-%d", i), fmt.Sprintf("value-%d", i))
 	}
 	b.ResetTimer()
@@ -197,7 +295,7 @@ func BenchmarkFindAll(b *testing.B) {
 func BenchmarkFindRegex(b *testing.B) {
 	b.ReportAllocs()
 	m := NewMap(variables.RequestHeaders)
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		m.Add(fmt.Sprintf("x-header-%d", i), fmt.Sprintf("value-%d", i))
 	}
 	// Matches keys ending in 0-9 (x-header-0 .. x-header-9), roughly half.
@@ -212,7 +310,7 @@ func BenchmarkFindString(b *testing.B) {
 	b.ReportAllocs()
 	m := NewMap(variables.RequestHeaders)
 	// Single key with multiple values
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		m.Add("x-forwarded-for", fmt.Sprintf("10.0.0.%d", i))
 	}
 	b.ResetTimer()

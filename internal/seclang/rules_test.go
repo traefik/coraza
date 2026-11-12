@@ -4,13 +4,58 @@
 package seclang
 
 import (
+	"bytes"
 	"regexp"
 	"strings"
 	"testing"
 
+	"github.com/corazawaf/coraza/v3/debuglog"
 	"github.com/corazawaf/coraza/v3/internal/corazawaf"
 	"github.com/corazawaf/coraza/v3/types"
 )
+
+// TestMemoizeKeysDoNotCollideAcrossCallers parses rule pairs whose memoize keys
+// were equal although they cache values of different types, so the second
+// rule's type assertion panicked inside NewWAF, for every WAF in the process
+// since the cache is global (GHSA-wc2q-x24m-8c5f). Not a profile: the harness
+// does not recover from a panic in NewWAF.
+func TestMemoizeKeysDoNotCollideAcrossCallers(t *testing.T) {
+	tests := []struct {
+		name  string
+		rules string
+	}{
+		{
+			name: "variable selector then @pm with the same pattern",
+			rules: `
+SecRule ARGS:/zzabc/ "@rx x" "id:1,pass"
+SecRule ARGS "@pm zzabc" "id:2,pass"`,
+		},
+		{
+			name: "@pm then variable selector with the same pattern",
+			rules: `
+SecRule ARGS "@pm zzabd" "id:1,pass"
+SecRule ARGS:/zzabd/ "@rx x" "id:2,pass"`,
+		},
+		{
+			name: "variable selector forging the @rx key",
+			rules: `
+SecRule ARGS:/rx:false:(?sm)zzabg/ "@rx x" "id:1,pass"
+SecRule ARGS "@rx zzabg" "id:2,pass"`,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("parsing panicked: %v", r)
+				}
+			}()
+			if err := NewParser(corazawaf.NewWAF()).FromString(tc.rules); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
 
 func TestRuleMatch(t *testing.T) {
 	waf := corazawaf.NewWAF()
@@ -531,6 +576,46 @@ func TestPrintedMultipleMsgAndDataWithMultiMatch(t *testing.T) {
 	}
 	if count := strings.Count(logs[0], "test1 in ARGS_GET"); count != 1 {
 		t.Errorf("failed to log logdata, expected \"test1 in ARGS_GET\" occurrence, got %s", logs[0])
+	}
+}
+
+// TestMultiMatchNoDuplicateOnUnchangedTransformation is a regression test for
+// https://github.com/corazawaf/coraza/issues/1612. A transformation that reported
+// changed=true while producing a byte-identical value (as cmdLine used to for any
+// input containing a bare '/') made multiMatch evaluate the operator twice against
+// the same value, doubling the matches and inflating the CRS anomaly score.
+// The rule below mirrors CRS 930110: same variables, transformations, operator and
+// multiMatch. The path-traversal request matches REQUEST_URI_RAW and ARGS:file once
+// each, so exactly two matches are expected (four before the fix).
+func TestMultiMatchNoDuplicateOnUnchangedTransformation(t *testing.T) {
+	waf := corazawaf.NewWAF()
+	var matched []types.MatchedRule
+	waf.SetErrorCallback(func(mr types.MatchedRule) {
+		matched = append(matched, mr)
+	})
+	parser := NewParser(waf)
+	err := parser.FromString(`
+	SecRule REQUEST_URI_RAW|ARGS "@rx (?:^|[/;\x5c])\.{2,3}[/;\x5c]" "id:930110, phase:2, block, capture, t:none, t:utf8toUnicode, t:urlDecodeUni, t:removeNulls, t:cmdLine, msg:'Path Traversal', multiMatch"
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx := waf.NewTransaction()
+	// ProcessURI also extracts the query string into ARGS (ARGS:file).
+	tx.ProcessURI("/?file=../../etc/passwd", "GET", "HTTP/1.1")
+	tx.ProcessRequestHeaders()
+	if _, err := tx.ProcessRequestBody(); err != nil {
+		t.Fatal(err)
+	}
+
+	total := 0
+	for _, mr := range matched {
+		if mr.Rule().ID() == 930110 {
+			total += len(mr.MatchedDatas())
+		}
+	}
+	if total != 2 {
+		t.Errorf("expected 2 matches for rule 930110 (one per matching variable), got %d", total)
 	}
 }
 
@@ -1253,5 +1338,44 @@ BINARYDATA
 	}
 	if it == nil {
 		t.Error("failed test for rx captured")
+	}
+}
+
+// TestRuleEvaluationDoesNotLogBuiltinTAction is a regression test for #754.
+// This cannot be an engine profile because profiles assert on the error log, not the debug log.
+func TestRuleEvaluationDoesNotLogBuiltinTAction(t *testing.T) {
+	waf := corazawaf.NewWAF()
+	logsBuf := &bytes.Buffer{}
+	waf.Logger = debuglog.Default().WithLevel(debuglog.LevelDebug).WithOutput(logsBuf)
+
+	parser := NewParser(waf)
+	err := parser.FromString(`
+	SecRule ARGS "@rx attack" "id:100,phase:2,t:none,t:lowercase,setvar:tx.foo=1,log,pass"
+	`)
+	if err != nil {
+		t.Fatalf("failed to parse rule: %v", err)
+	}
+
+	tx := waf.NewTransaction()
+	tx.AddGetRequestArgument("arg", "ATTACK")
+	tx.ProcessRequestHeaders()
+	if _, err := tx.ProcessRequestBody(); err != nil {
+		t.Fatalf("unexpected error processing request body: %v", err)
+	}
+
+	vals := tx.Variables().TX().Get("foo")
+	if len(vals) != 1 || vals[0] != "1" {
+		t.Errorf("expected tx.foo to be ['1'], got %v", vals)
+	}
+
+	logs := logsBuf.String()
+	if !strings.Contains(logs, `action="setvar"`) {
+		t.Errorf("expected debug logs to contain action=\"setvar\", got:\n%s", logs)
+	}
+	if !strings.Contains(logs, `action="log"`) {
+		t.Errorf("expected debug logs to contain action=\"log\", got:\n%s", logs)
+	}
+	if strings.Contains(logs, `action="t"`) {
+		t.Errorf("expected debug logs NOT to contain action=\"t\", got:\n%s", logs)
 	}
 }

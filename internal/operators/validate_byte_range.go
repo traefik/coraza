@@ -26,7 +26,7 @@ import (
 // true if any byte is outside the allowed range (violation detected), false if all bytes are valid
 //
 // Example:
-// ```
+// ```seclang
 // # Allow only printable ASCII characters
 // SecRule ARGS "@validateByteRange 10, 13, 32-126" "id:189,deny,log,msg:'Invalid characters'"
 //
@@ -47,7 +47,7 @@ func newValidateByteRange(options plugintypes.OperatorOptions) (plugintypes.Oper
 	}
 
 	var validBytes [256]bool
-	for _, br := range strings.Split(data, ",") {
+	for br := range strings.SplitSeq(data, ",") {
 		br = strings.TrimSpace(br)
 		start, end, ok := strings.Cut(br, "-")
 

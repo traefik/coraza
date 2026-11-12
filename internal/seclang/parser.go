@@ -40,7 +40,8 @@ func (p *Parser) FromFile(profilePath string) error {
 	originalDir := p.currentDir
 
 	var files []string
-	if strings.Contains(profilePath, "*") {
+	isGlob := strings.Contains(profilePath, "*")
+	if isGlob {
 		var err error
 		files, err = fs.Glob(p.root, profilePath)
 		if err != nil {
@@ -56,12 +57,18 @@ func (p *Parser) FromFile(profilePath string) error {
 
 	for _, profilePath := range files {
 		profilePath = strings.TrimSpace(profilePath)
-		if !strings.HasPrefix(profilePath, "/") {
-			profilePath = filepath.Join(p.currentDir, profilePath)
+		// Glob results are already resolvable against p.root, in the same frame
+		// of reference fs.Glob used to match them, so they must not be
+		// re-anchored to currentDir. Doing so pointed the read at a path the
+		// glob never matched, and on Windows it also rewrote the forward
+		// slashes io/fs mandates into OS separators, which no fs.FS can
+		// resolve.
+		if !isGlob && !strings.HasPrefix(profilePath, "/") {
+			profilePath = p.fsPath(filepath.Join(p.currentDir, profilePath))
 		}
 		p.currentFile = profilePath
 		lastDir := p.currentDir
-		p.currentDir = filepath.Dir(profilePath)
+		p.currentDir = p.fsPath(filepath.Dir(profilePath))
 		file, err := fs.ReadFile(p.root, profilePath)
 		if err != nil {
 			// we don't use defer for this as tinygo does not seem to like it
@@ -85,6 +92,17 @@ func (p *Parser) FromFile(profilePath string) error {
 	p.currentFile = ""
 
 	return nil
+}
+
+// fsPath returns name in the slash-separated form io/fs requires, so that
+// fs.Sub, embed and other fs.FS roots work on Windows too. Names for io.OSFS
+// are OS paths and are returned unchanged, as are UNC and device paths, which
+// only an OS-backed root can open and whose leading "//" path.Join would drop.
+func (p *Parser) fsPath(name string) string {
+	if _, ok := p.root.(io.OSFS); ok || len(filepath.VolumeName(name)) > 2 {
+		return name
+	}
+	return filepath.ToSlash(name)
 }
 
 // FromString imports directives from a string
@@ -238,4 +256,7 @@ type ParserConfig struct {
 	ConfigDir                   string
 	Root                        fs.FS
 	WorkingDir                  string
+	// skipChainLinks is set while the links of a chain dropped for an ignored
+	// compilation error are being read, see skipBrokenChainLink.
+	skipChainLinks bool
 }

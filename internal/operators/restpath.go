@@ -28,7 +28,7 @@ var rePathTokenRe = regexp.MustCompile(`\{([^\}]+)\}`)
 // true if the URI matches the path template, false otherwise. Matched placeholders are available in ARGS_PATH.
 //
 // Example:
-// ```
+// ```seclang
 // # Match REST endpoint and extract path parameters
 // SecRule REQUEST_URI "@restpath /api/v1/users/{userId}/posts/{postId}" "id:201,pass,log"
 //
@@ -47,7 +47,7 @@ func newRESTPath(options plugintypes.OperatorOptions) (plugintypes.Operator, err
 		data = strings.Replace(data, token[0], fmt.Sprintf("(?P<%s>[^?/]+)", token[1]), 1)
 	}
 
-	re, err := memoizeDo(options.Memoizer, data, func() (any, error) { return regexp.Compile(data) })
+	re, err := memoizeDo(options.Memoizer, "regexp:"+data, func() (any, error) { return regexp.Compile(data) })
 	if err != nil {
 		return nil, err
 	}

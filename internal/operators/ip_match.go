@@ -24,7 +24,7 @@ import (
 // true if the input IP address matches any of the provided IPs or ranges, false otherwise
 //
 // Example:
-// ```
+// ```seclang
 // # Block specific IPs and ranges
 // SecRule REMOTE_ADDR "@ipMatch 192.168.1.100,192.168.1.50,10.10.50.0/24" "id:160,deny,log"
 //
@@ -41,7 +41,7 @@ func newIPMatch(options plugintypes.OperatorOptions) (plugintypes.Operator, erro
 	data := options.Arguments
 
 	var subnets []net.IPNet
-	for _, sb := range strings.Split(data, ",") {
+	for sb := range strings.SplitSeq(data, ",") {
 		sb = strings.TrimSpace(sb)
 		if sb == "" {
 			continue

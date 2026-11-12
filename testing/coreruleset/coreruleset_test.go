@@ -30,8 +30,8 @@ import (
 	"github.com/coreruleset/go-ftw/v2/test"
 	"github.com/rs/zerolog"
 
-	coreruleset "github.com/corazawaf/coraza-coreruleset/v4"
-	crstests "github.com/corazawaf/coraza-coreruleset/v4/tests"
+	crstests "github.com/corazawaf/coraza-coreruleset/crs/tests/v4"
+	coreruleset "github.com/corazawaf/coraza-coreruleset/crs/v4"
 	"github.com/corazawaf/coraza/v3"
 	"github.com/corazawaf/coraza/v3/experimental"
 	txhttp "github.com/corazawaf/coraza/v3/http"
@@ -43,7 +43,7 @@ func BenchmarkCRSCompilation(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		waf, err := coraza.NewWAF(coraza.NewWAFConfig().
 			WithRootFS(coreruleset.FS).
 			WithDirectives(string(rec)).
@@ -61,8 +61,8 @@ func BenchmarkCRSCompilation(b *testing.B) {
 func BenchmarkCRSSimpleGET(b *testing.B) {
 	waf := crsWAF(b)
 
-	b.ResetTimer() // only benchmark execution, not compilation
-	for i := 0; i < b.N; i++ {
+	// only benchmark execution, not compilation
+	for b.Loop() {
 		tx := waf.NewTransaction()
 		tx.ProcessConnection("127.0.0.1", 8080, "127.0.0.1", 8080)
 		tx.ProcessURI("/some_path/with?parameters=and&other=Stuff", "GET", "HTTP/1.1")
@@ -89,8 +89,8 @@ func BenchmarkCRSSimplePOST(b *testing.B) {
 	waf := crsWAF(b)
 
 	b.ReportAllocs()
-	b.ResetTimer() // only benchmark execution, not compilation
-	for i := 0; i < b.N; i++ {
+	// only benchmark execution, not compilation
+	for b.Loop() {
 		tx := waf.NewTransaction()
 		tx.ProcessConnection("127.0.0.1", 8080, "127.0.0.1", 8080)
 		tx.ProcessURI("/some_path/with?parameters=and&other=Stuff", "POST", "HTTP/1.1")
@@ -120,11 +120,11 @@ func BenchmarkCRSSimplePOST(b *testing.B) {
 func BenchmarkCRSLargePOST(b *testing.B) {
 	waf := crsWAF(b)
 
-	postPayload := []byte(fmt.Sprintf("parameters2=and&other2=%s", strings.Repeat("a", 10000)))
+	postPayload := fmt.Appendf(nil, "parameters2=and&other2=%s", strings.Repeat("a", 10000))
 
 	b.ReportAllocs()
-	b.ResetTimer() // only benchmark execution, not compilation
-	for i := 0; i < b.N; i++ {
+	// only benchmark execution, not compilation
+	for b.Loop() {
 		tx := waf.NewTransaction()
 		tx.ProcessConnection("127.0.0.1", 8080, "127.0.0.1", 8080)
 		tx.ProcessURI("/some_path/with?parameters=and&other=Stuff", "POST", "HTTP/1.1")
@@ -422,7 +422,7 @@ func BenchmarkCRSTransformationCache(b *testing.B) {
 	mediumBody := strings.Join(mediumParams, "&")
 	// Large: 30 params with longer values (complex form, many args)
 	var largeParams []string
-	for i := 0; i < 30; i++ {
+	for i := range 30 {
 		largeParams = append(largeParams, fmt.Sprintf("field_%d=%s", i, strings.Repeat("value", 20)))
 	}
 	largeBody := strings.Join(largeParams, "&")
@@ -556,7 +556,7 @@ SecRule REQUEST_HEADERS:X-CRS-Test "@rx ^.*$" \
 	// 1. Coraza config
 	// 2. Custom Rules for testing and eventually overrides of the basic Coraza config
 	// 3. CRS basic config
-	// 4. CRS rules (on top of which are applied the previously defined SecDefaultAction)
+	// 4. CRS rules (on top of which are applied the SecDefaultAction defined by the CRS basic config)
 	conf = conf.
 		WithRootFS(coreruleset.FS).
 		WithDirectives(string(rec)).
@@ -658,8 +658,8 @@ SecRule REQUEST_HEADERS:X-CRS-Test "@rx ^.*$" \
 }
 
 func BenchmarkCRSMultiWAFCompilation(b *testing.B) {
-	for i := 0; i < b.N; i++ {
-		for w := 0; w < 10; w++ {
+	for b.Loop() {
+		for range 10 {
 			waf := crsWAF(b)
 			if closer, ok := waf.(experimental.WAFCloser); ok {
 				closer.Close()
@@ -669,7 +669,7 @@ func BenchmarkCRSMultiWAFCompilation(b *testing.B) {
 }
 
 func BenchmarkCRSMemoizeSpeedup(b *testing.B) {
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		// Cold compilation (first WAF)
 		cold := time.Now()
 		waf1 := crsWAF(b)
@@ -749,8 +749,6 @@ func crsWAF(t testing.TB) coraza.WAF {
 	}
 	customTestingConfig := `
 SecResponseBodyMimeType text/plain
-SecDefaultAction "phase:3,log,auditlog,pass"
-SecDefaultAction "phase:4,log,auditlog,pass"
 
 # Rule 900005 from https://github.com/coreruleset/coreruleset/blob/v4.0/dev/tests/regression/README.md#requirements
 SecAction "id:900005,\
